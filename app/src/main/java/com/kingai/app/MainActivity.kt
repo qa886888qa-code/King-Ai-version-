@@ -73,6 +73,7 @@ private fun KingAiScreen() {
     var password by remember { mutableStateOf("") }
     var authBusy by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
+    val appContext = LocalContext.current.applicationContext
     var accountPanel by remember { mutableStateOf(false) }
     var profilePhotoUri by remember { mutableStateOf(appPhotoUri(appContext)) }
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -89,7 +90,6 @@ private fun KingAiScreen() {
     var error by remember { mutableStateOf<String?>(null) }
     var startupAttempt by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
-    val appContext = LocalContext.current.applicationContext
 
     LaunchedEffect(startupAttempt) {
         checkingSession = true
@@ -199,6 +199,24 @@ private fun KingAiScreen() {
                         Text("KING AI", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = TextMain, letterSpacing = 2.sp)
                         Text("Your personal AI assistant", color = TextMuted, fontSize = 11.sp)
                     }
+                    TextButton(onClick = {
+                        val activeSession = session
+                        if (!loading && activeSession != null) {
+                            loading = true
+                            error = null
+                            scope.launch {
+                                try {
+                                    val saved = withContext(Dispatchers.IO) { KingAiApi.resume(activeSession.accessToken) }
+                                    chatId = saved.chatId
+                                    messages.clear()
+                                    messages.addAll(saved.messages)
+                                    if (messages.isEmpty()) messages.add(ChatMessage("No saved messages yet. Start chatting and your history will be stored automatically.", false))
+                                } catch (e: Exception) {
+                                    error = e.message ?: "Couldn't load saved history."
+                                } finally { loading = false }
+                            }
+                        }
+                    }) { Text("History", color = Gold, fontWeight = FontWeight.Bold) }
                     TextButton(onClick = { storyMode = !storyMode; error = null }) {
                         Text(if (storyMode) "Chat" else "📖 Story", color = Gold, fontWeight = FontWeight.Bold)
                     }
