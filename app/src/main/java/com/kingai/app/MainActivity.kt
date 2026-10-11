@@ -247,7 +247,7 @@ private fun KingLogo(size: Int = 66) {
 }
 
 private object KingAiApi {
-    private val client = OkHttpClient.Builder().callTimeout(35, TimeUnit.SECONDS).build()
+    private val client = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).writeTimeout(20, TimeUnit.SECONDS).callTimeout(65, TimeUnit.SECONDS).build()
     private val baseUrl get() = BuildConfig.SUPABASE_URL.trimEnd('/')
     private val apiKey get() = BuildConfig.SUPABASE_ANON_KEY.trim()
 
