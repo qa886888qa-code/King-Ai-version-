@@ -2,9 +2,14 @@ package com.kingai.app
 
 import android.os.Bundle
 import android.content.Context
+import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -68,6 +74,13 @@ private fun KingAiScreen() {
     var authBusy by remember { mutableStateOf(false) }
     var authError by remember { mutableStateOf<String?>(null) }
     var accountPanel by remember { mutableStateOf(false) }
+    var profilePhotoUri by remember { mutableStateOf(appPhotoUri(appContext)) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            profilePhotoUri = uri.toString()
+            appSavePhotoUri(appContext, uri.toString())
+        }
+    }
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var chatId by remember { mutableStateOf<String?>(null) }
     var input by remember { mutableStateOf("") }
@@ -163,10 +176,11 @@ private fun KingAiScreen() {
         } else if (accountPanel) {
             Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center) {
-                KingLogo()
+                ProfileAvatar(profilePhotoUri, appContext, 104)
                 Text("Account", fontSize = 25.sp, fontWeight = FontWeight.Bold, color = TextMain,
                     modifier = Modifier.padding(top = 18.dp))
                 Text(session!!.email, color = TextMuted, modifier = Modifier.padding(top = 8.dp))
+                OutlinedButton(onClick = { photoPicker.launch("image/*") }, modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) { Text("Choose profile photo") }
                 Button(onClick = { accountPanel = false }, modifier = Modifier.fillMaxWidth().padding(top = 24.dp)) { Text("Back to chat") }
                 OutlinedButton(onClick = {
                     KingAiApi.signOut(appContext)
@@ -180,7 +194,7 @@ private fun KingAiScreen() {
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 12.dp)) {
-                    KingLogo(size = 46)
+                    ProfileAvatar(profilePhotoUri, appContext, 46)
                     Column(Modifier.padding(start = 12.dp).weight(1f)) {
                         Text("KING AI", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = TextMain, letterSpacing = 2.sp)
                         Text("Your personal AI assistant", color = TextMuted, fontSize = 11.sp)
@@ -240,6 +254,28 @@ private fun KingAiScreen() {
                     color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
             }
         }
+    }
+}
+
+private fun appPhotoUri(context: Context): String? =
+    context.getSharedPreferences("king_ai_account", Context.MODE_PRIVATE).getString("profile_photo_uri", null)
+
+private fun appSavePhotoUri(context: Context, uri: String) {
+    context.getSharedPreferences("king_ai_account", Context.MODE_PRIVATE).edit().putString("profile_photo_uri", uri).apply()
+}
+
+@Composable
+private fun ProfileAvatar(uri: String?, context: Context, size: Int) {
+    val bitmap = remember(uri) {
+        try {
+            if (uri.isNullOrBlank()) null
+            else context.contentResolver.openInputStream(Uri.parse(uri))?.use { BitmapFactory.decodeStream(it) }?.asImageBitmap()
+        } catch (_: Exception) { null }
+    }
+    if (bitmap != null) {
+        Image(bitmap = bitmap, contentDescription = "Profile photo", modifier = Modifier.size(size.dp).background(Panel, CircleShape))
+    } else {
+        KingLogo(size)
     }
 }
 
