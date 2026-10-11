@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
@@ -60,6 +61,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private data class ChatMessage(val text: String, val fromUser: Boolean)
+private data class LocalConversation(val id: String, val title: String, val messages: List<ChatMessage>)
 private data class AuthSession(val accessToken: String, val email: String, val refreshToken: String)
 private data class SavedChat(val chatId: String?, val messages: List<ChatMessage>)
 private data class ChatReply(val text: String, val chatId: String)
@@ -84,6 +86,8 @@ private fun KingAiScreen() {
     }
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var chatId by remember { mutableStateOf<String?>(null) }
+    var showHistory by remember { mutableStateOf(false) }
+    var localHistory by remember { mutableStateOf(loadLocalHistory(appContext)) }
     var input by remember { mutableStateOf("") }
     var storyMode by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
@@ -199,6 +203,17 @@ private fun KingAiScreen() {
                         Text("KING AI", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = TextMain, letterSpacing = 2.sp)
                         Text("Your personal AI assistant", color = TextMuted, fontSize = 11.sp)
                     }
+                    IconButton(onClick = {
+                        if (messages.isNotEmpty() && chatId != null) {
+                            localHistory = saveLocalConversation(appContext, localHistory, chatId!!, messages.toList())
+                        }
+                        chatId = null
+                        messages.clear()
+                        messages.add(ChatMessage("New chat started. What would you like to talk about?", false))
+                        input = ""
+                        showHistory = false
+                    }) { Icon(Icons.Default.Add, contentDescription = "New chat", tint = Gold) }
+                    TextButton(onClick = { showHistory = !showHistory }) { Text(if (showHistory) "Close" else "History", color = Gold, fontWeight = FontWeight.Bold) }
                     TextButton(onClick = {
                         val activeSession = session
                         if (!loading && activeSession != null) {
@@ -216,7 +231,7 @@ private fun KingAiScreen() {
                                 } finally { loading = false }
                             }
                         }
-                    }) { Text("History", color = Gold, fontWeight = FontWeight.Bold) }
+                    }) { Text("Sync", color = Gold, fontWeight = FontWeight.Bold) }
                     TextButton(onClick = { storyMode = !storyMode; error = null }) {
                         Text(if (storyMode) "Chat" else "📖 Story", color = Gold, fontWeight = FontWeight.Bold)
                     }
@@ -224,7 +239,28 @@ private fun KingAiScreen() {
                         Icon(Icons.Default.AccountCircle, contentDescription = "Account", tint = Gold, modifier = Modifier.size(30.dp))
                     }
                 }
-                Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp),
+                if (showHistory) {
+                    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item { Text("Recent chats", color = TextMain, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+                            items(localHistory.reversed(), key = { it.id }) { chat ->
+                                OutlinedButton(onClick = {
+                                    chatId = chat.id
+                                    messages.clear()
+                                    messages.addAll(chat.messages)
+                                    showHistory = false
+                                }, modifier = Modifier.fillMaxWidth()) {
+                                    Column(Modifier.fillMaxWidth()) {
+                                        Text(chat.title, color = TextMain, maxLines = 1)
+                                        Text(chat.messages.size.toString() + " messages", color = TextMuted, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                            if (localHistory.isEmpty()) item { Text("Your chats will appear here after you start a conversation.", color = TextMuted) }
+                        }
+                    }
+                } else Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth().weight(1f)) {
                     LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(messages) { message ->
@@ -260,6 +296,7 @@ private fun KingAiScreen() {
                                     val answer = withContext(Dispatchers.IO) { KingAiApi.send(aiPrompt, activeSession.accessToken, chatId) }
                                     chatId = answer.chatId
                                     messages.add(ChatMessage(answer.text, false))
+                                    localHistory = saveLocalConversation(appContext, localHistory, answer.chatId, messages.toList())
                                 } catch (e: Exception) {
                                     error = e.message ?: "King AI is temporarily unavailable. Please try again."
                                 } finally { loading = false }
@@ -273,6 +310,37 @@ private fun KingAiScreen() {
             }
         }
     }
+}
+
+private fun loadLocalHistory(context: Context): List<LocalConversation> {
+    return try {
+        val raw = context.getSharedPreferences("king_ai_history", Context.MODE_PRIVATE).getString("chats", "[]") ?: "[]"
+        val array = org.json.JSONArray(raw)
+        (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val msgs = obj.optJSONArray("messages") ?: org.json.JSONArray()
+            val parsed = (0 until msgs.length()).mapNotNull { j ->
+                val m = msgs.optJSONObject(j) ?: return@mapNotNull null
+                ChatMessage(m.optString("text"), m.optBoolean("user"))
+            }
+            LocalConversation(obj.optString("id"), obj.optString("title", "Chat"), parsed)
+        }
+    } catch (_: Exception) { emptyList() }
+}
+
+private fun saveLocalConversation(context: Context, old: List<LocalConversation>, id: String, messages: List<ChatMessage>): List<LocalConversation> {
+    val title = messages.firstOrNull { it.fromUser }?.text?.take(48) ?: "Chat"
+    val next = (old.filterNot { it.id == id } + LocalConversation(id, title, messages)).takeLast(40)
+    val array = org.json.JSONArray()
+    next.forEach { chat ->
+        val obj = JSONObject().put("id", chat.id).put("title", chat.title)
+        val msgs = org.json.JSONArray()
+        chat.messages.forEach { msgs.put(JSONObject().put("text", it.text).put("user", it.fromUser)) }
+        obj.put("messages", msgs)
+        array.put(obj)
+    }
+    context.getSharedPreferences("king_ai_history", Context.MODE_PRIVATE).edit().putString("chats", array.toString()).apply()
+    return next
 }
 
 private fun appPhotoUri(context: Context): String? =
