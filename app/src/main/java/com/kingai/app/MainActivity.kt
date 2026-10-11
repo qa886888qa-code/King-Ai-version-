@@ -1,6 +1,7 @@
 package com.kingai.app
 
 import android.os.Bundle
+import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -9,18 +10,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -53,7 +52,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private data class ChatMessage(val text: String, val fromUser: Boolean)
-private data class AuthSession(val accessToken: String, val email: String)
+private data class AuthSession(val accessToken: String, val email: String, val refreshToken: String)
 private data class SavedChat(val chatId: String?, val messages: List<ChatMessage>)
 private data class ChatReply(val text: String, val chatId: String)
 
@@ -68,11 +67,12 @@ private fun KingAiScreen() {
     var startupError by remember { mutableStateOf<String?>(null) }
     var startupAttempt by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
+    val appContext = LocalContext.current.applicationContext
 
     LaunchedEffect(startupAttempt) {
         startupError = null
         try {
-            val signedIn = withContext(Dispatchers.IO) { KingAiApi.authenticateAnonymously() }
+            val signedIn = withContext(Dispatchers.IO) { KingAiApi.restoreOrCreateGuest(appContext) }
             session = signedIn
             val saved = withContext(Dispatchers.IO) { KingAiApi.resume(signedIn.accessToken) }
             chatId = saved.chatId
@@ -192,14 +192,35 @@ private object KingAiApi {
         }
     }
 
-    fun authenticateAnonymously(): AuthSession {
+    fun restoreOrCreateGuest(context: Context): AuthSession {
+        val prefs = context.getSharedPreferences("king_ai_guest", Context.MODE_PRIVATE)
+        val savedRefreshToken = prefs.getString("refresh_token", null)
+        if (!savedRefreshToken.isNullOrBlank()) {
+            try {
+                val refreshed = execute(
+                    "$baseUrl/auth/v1/token?grant_type=refresh_token",
+                    JSONObject().put("refresh_token", savedRefreshToken)
+                )
+                val access = refreshed.optString("access_token")
+                val refresh = refreshed.optString("refresh_token").ifBlank { savedRefreshToken }
+                if (access.isNotBlank()) {
+                    prefs.edit().putString("refresh_token", refresh).apply()
+                    return AuthSession(access, "Guest mode", refresh)
+                }
+            } catch (_: Exception) {
+                // An expired guest session is replaced with a fresh anonymous identity below.
+            }
+        }
+
         // Supabase creates a private guest identity without showing a login screen.
         val json = execute("$baseUrl/auth/v1/signup", JSONObject())
         val token = json.optString("access_token")
-        if (token.isBlank()) {
+        val refresh = json.optString("refresh_token")
+        if (token.isBlank() || refresh.isBlank()) {
             throw IOException("Guest mode enable nahi hai. Supabase Auth settings mein Anonymous Sign-Ins enable karein.")
         }
-        return AuthSession(token, "Guest mode")
+        prefs.edit().putString("refresh_token", refresh).apply()
+        return AuthSession(token, "Guest mode", refresh)
     }
 
     fun resume(token: String): SavedChat {
