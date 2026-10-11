@@ -71,6 +71,7 @@ private fun KingAiScreen() {
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var chatId by remember { mutableStateOf<String?>(null) }
     var input by remember { mutableStateOf("") }
+    var storyMode by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var startupAttempt by remember { mutableIntStateOf(0) }
@@ -184,6 +185,9 @@ private fun KingAiScreen() {
                         Text("KING AI", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = TextMain, letterSpacing = 2.sp)
                         Text("Your personal AI assistant", color = TextMuted, fontSize = 11.sp)
                     }
+                    TextButton(onClick = { storyMode = !storyMode; error = null }) {
+                        Text(if (storyMode) "Chat" else "📖 Story", color = Gold, fontWeight = FontWeight.Bold)
+                    }
                     IconButton(onClick = { accountPanel = true }) {
                         Icon(Icons.Default.AccountCircle, contentDescription = "Account", tint = Gold, modifier = Modifier.size(30.dp))
                     }
@@ -211,7 +215,7 @@ private fun KingAiScreen() {
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = input, onValueChange = { input = it; error = null },
-                        modifier = Modifier.weight(1f), placeholder = { Text("Message King AI...", color = TextMuted) },
+                        modifier = Modifier.weight(1f), placeholder = { Text(if (storyMode) "Enter a story idea..." else "Message King AI...", color = TextMuted) },
                         shape = RoundedCornerShape(16.dp), maxLines = 4)
                     Button(onClick = {
                         val prompt = input.trim()
@@ -220,7 +224,8 @@ private fun KingAiScreen() {
                             messages.add(ChatMessage(prompt, true)); input = ""; loading = true; error = null
                             scope.launch {
                                 try {
-                                    val answer = withContext(Dispatchers.IO) { KingAiApi.send(prompt, activeSession.accessToken, chatId) }
+                                    val aiPrompt = if (storyMode) "Write an engaging original story based on this idea. Give it a title and satisfying ending. Use the language of the idea: " + prompt else prompt
+                                    val answer = withContext(Dispatchers.IO) { KingAiApi.send(aiPrompt, activeSession.accessToken, chatId) }
                                     chatId = answer.chatId
                                     messages.add(ChatMessage(answer.text, false))
                                 } catch (e: Exception) {
@@ -231,7 +236,7 @@ private fun KingAiScreen() {
                     }, enabled = input.isNotBlank() && !loading, modifier = Modifier.size(54.dp),
                         shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Send, contentDescription = "Send") }
                 }
-                Text("Your chat history is saved to your account. Avoid sharing sensitive information.",
+                Text(if (storyMode) "Story Maker is on — enter a topic and tap Send." else "Your chat history is saved to your account. Avoid sharing sensitive information.",
                     color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
             }
         }
