@@ -2,6 +2,8 @@ package com.kingai.app
 
 import android.os.Bundle
 import android.content.Context
+import android.content.Intent
+import android.util.Xml
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.ComponentActivity
@@ -9,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -41,6 +45,11 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import java.io.StringReader
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import org.xmlpull.v1.XmlPullParser
 import java.util.concurrent.TimeUnit
 
 private val Ink = Color(0xFF212121)
@@ -67,6 +76,7 @@ private data class AuthSession(val accessToken: String, val email: String, val r
 private data class SavedChat(val chatId: String?, val messages: List<ChatMessage>)
 private data class RemoteConversation(val id: String, val title: String, val messageCount: Int)
 private data class ChatReply(val text: String, val chatId: String)
+private data class LiveNewsItem(val title: String, val url: String, val publishedAt: String)
 
 @Composable
 private fun KingAiScreen() {
@@ -89,6 +99,10 @@ private fun KingAiScreen() {
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var chatId by remember { mutableStateOf<String?>(null) }
     var showHistory by remember { mutableStateOf(false) }
+    var showLiveNews by remember { mutableStateOf(false) }
+    var liveNews by remember { mutableStateOf<List<LiveNewsItem>>(emptyList()) }
+    var liveNewsBusy by remember { mutableStateOf(false) }
+    var liveDateTime by remember { mutableStateOf(SimpleDateFormat("EEE, dd MMM yyyy • hh:mm:ss a", Locale.getDefault()).format(Date())) }
     var remoteHistory by remember { mutableStateOf<List<RemoteConversation>>(emptyList()) }
     var historyBusy by remember { mutableStateOf(false) }
     var showClearHistoryConfirm by remember { mutableStateOf(false) }
@@ -100,6 +114,13 @@ private fun KingAiScreen() {
     var error by remember { mutableStateOf<String?>(null) }
     var startupAttempt by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            liveDateTime = SimpleDateFormat("EEE, dd MMM yyyy • hh:mm:ss a", Locale.getDefault()).format(Date())
+            delay(1000)
+        }
+    }
 
     LaunchedEffect(startupAttempt) {
         checkingSession = true
@@ -207,7 +228,7 @@ private fun KingAiScreen() {
                     ProfileAvatar(profilePhotoUri, appContext, 36)
                     Column(Modifier.padding(start = 10.dp).weight(1f)) {
                         Text("King AI", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = TextMain)
-                        Text(if (storyMode) "Story mode" else "AI assistant", color = TextMuted, fontSize = 11.sp)
+                        Text(if (storyMode) "Story mode" else liveDateTime, color = TextMuted, fontSize = 10.sp, maxLines = 1)
                     }
                     IconButton(onClick = {
                         if (messages.isNotEmpty() && chatId != null) {
@@ -220,6 +241,7 @@ private fun KingAiScreen() {
                         showHistory = false
                     }) { Icon(Icons.Default.Add, contentDescription = "New chat", tint = Gold) }
                     TextButton(onClick = {
+                        showLiveNews = false
                         if (!showHistory) {
                             val activeSession = session
                             if (activeSession != null) {
@@ -238,6 +260,19 @@ private fun KingAiScreen() {
                         Text(if (historyBusy) "Loading…" else if (showHistory) "Close" else "History", color = Gold, fontWeight = FontWeight.Bold)
                     }
                     TextButton(onClick = {
+                        showHistory = false
+                        if (!showLiveNews) {
+                            liveNewsBusy = true
+                            error = null
+                            scope.launch {
+                                try { liveNews = withContext(Dispatchers.IO) { KingAiApi.fetchLiveNews() }; showLiveNews = true }
+                                catch (e: Exception) { error = e.message ?: "Couldn't load live news." }
+                                finally { liveNewsBusy = false }
+                            }
+                        } else showLiveNews = false
+                    }, enabled = !liveNewsBusy) { Text(if (liveNewsBusy) "Loading…" else if (showLiveNews) "Close live" else "Live", color = Gold, fontWeight = FontWeight.Bold) }
+                    TextButton(onClick = {
+                        showLiveNews = false
                         val activeSession = session
                         if (!loading && activeSession != null) {
                             loading = true
@@ -306,6 +341,43 @@ private fun KingAiScreen() {
                                 }
                             }
                             if (remoteHistory.isEmpty()) item { Text("No saved chats yet. Start a new conversation.", color = TextMuted) }
+                        }
+                    }
+                } else if (showLiveNews) {
+                    Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            item {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Live news", color = TextMain, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                                        Text("Latest public headlines · Pakistan & world", color = TextMuted, fontSize = 11.sp)
+                                    }
+                                    TextButton(onClick = {
+                                        liveNewsBusy = true; error = null
+                                        scope.launch {
+                                            try { liveNews = withContext(Dispatchers.IO) { KingAiApi.fetchLiveNews() } }
+                                            catch (e: Exception) { error = e.message ?: "Couldn't refresh live news." }
+                                            finally { liveNewsBusy = false }
+                                        }
+                                    }, enabled = !liveNewsBusy) { Text("Refresh", color = Gold) }
+                                }
+                                Text("Updated from online news feeds; tap a headline to read the source.", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 4.dp))
+                            }
+                            items(liveNews) { item ->
+                                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF383838)), shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier.fillMaxWidth().clickable {
+                                        try { appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(item.url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                                        catch (_: Exception) { error = "Couldn't open this news link." }
+                                    }) {
+                                    Column(Modifier.padding(12.dp)) {
+                                        Text(item.title, color = TextMain, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp)
+                                        Text(item.publishedAt, color = Gold, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
+                                        Text("Open article ↗", color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp))
+                                    }
+                                }
+                            }
+                            if (liveNews.isEmpty() && !liveNewsBusy) item { Text("No headlines loaded yet. Tap Refresh to try again.", color = TextMuted) }
                         }
                     }
                 } else Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp),
@@ -643,6 +715,52 @@ private object KingAiApi {
 
     fun clearHistory(token: String) {
         execute(BuildConfig.KING_AI_CHAT_FUNCTION_URL, JSONObject().put("action", "delete_all_chats"), token)
+    }
+
+    fun fetchLiveNews(): List<LiveNewsItem> {
+        val feeds = listOf(
+            "https://news.google.com/rss?hl=en-PK&gl=PK&ceid=PK:en",
+            "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en"
+        )
+        val all = mutableListOf<LiveNewsItem>()
+        for (feed in feeds) {
+            val request = Request.Builder().url(feed).get().header("User-Agent", "KingAI-Android/1.0").build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("News feed request failed (HTTP ${response.code}).")
+                val xml = response.body?.string().orEmpty()
+                val parser = Xml.newPullParser()
+                parser.setInput(StringReader(xml))
+                var event = parser.eventType
+                var inItem = false
+                var tag = ""
+                var title = ""
+                var link = ""
+                var published = ""
+                while (event != XmlPullParser.END_DOCUMENT) {
+                    when (event) {
+                        XmlPullParser.START_TAG -> {
+                            tag = parser.name
+                            if (tag == "item") { inItem = true; title = ""; link = ""; published = "" }
+                        }
+                        XmlPullParser.TEXT -> if (inItem) {
+                            when (tag) {
+                                "title" -> title += parser.text
+                                "link" -> link += parser.text
+                                "pubDate" -> published += parser.text
+                            }
+                        }
+                        XmlPullParser.END_TAG -> if (parser.name == "item" && inItem) {
+                            if (title.isNotBlank() && link.startsWith("http")) {
+                                all.add(LiveNewsItem(title.trim(), link.trim(), published.trim().ifBlank { "Recently published" }))
+                            }
+                            inItem = false
+                        }
+                    }
+                    event = parser.next()
+                }
+            }
+        }
+        return all.distinctBy { it.url }.take(50)
     }
 
     fun send(prompt: String, token: String, chatId: String?): ChatReply {
