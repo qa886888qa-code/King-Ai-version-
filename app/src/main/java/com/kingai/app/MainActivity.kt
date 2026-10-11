@@ -63,91 +63,41 @@ private fun KingAiScreen() {
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var chatId by remember { mutableStateOf<String?>(null) }
     var input by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
-    var authLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var authError by remember { mutableStateOf<String?>(null) }
+    var startupError by remember { mutableStateOf<String?>(null) }
+    var startupAttempt by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(startupAttempt) {
+        startupError = null
+        try {
+            val signedIn = withContext(Dispatchers.IO) { KingAiApi.authenticateAnonymously() }
+            session = signedIn
+            val saved = withContext(Dispatchers.IO) { KingAiApi.resume(signedIn.accessToken) }
+            chatId = saved.chatId
+            messages.clear()
+            messages.addAll(saved.messages)
+            if (messages.isEmpty()) messages.add(ChatMessage("Assalam-o-alaikum! Main King AI hoon. Aap kis cheez mein madad chahte hain?", false))
+        } catch (e: Exception) {
+            startupError = e.message ?: "King AI shuru nahi ho saka."
+        }
+    }
 
     Surface(Modifier.fillMaxSize(), color = Ink) {
         if (session == null) {
-            Column(
-                Modifier.fillMaxSize().padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(Modifier.size(66.dp).background(Gold, CircleShape), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Ink, modifier = Modifier.size(34.dp))
                 }
-                Text("KING AI", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, color = TextMain, letterSpacing = 2.sp,
-                    modifier = Modifier.padding(top = 16.dp))
-                Text("Sign in to keep your chats private and saved", color = TextMuted, fontSize = 13.sp,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 22.dp))
-                OutlinedTextField(
-                    value = email, onValueChange = { email = it.trim(); authError = null },
-                    modifier = Modifier.fillMaxWidth(), label = { Text("Email") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), singleLine = true
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = password, onValueChange = { password = it; authError = null },
-                    modifier = Modifier.fillMaxWidth(), label = { Text("Password") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), singleLine = true
-                )
-                authError?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp)) }
-                Spacer(Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        if (email.isBlank() || password.length < 6) {
-                            authError = "Email enter karein aur password kam az kam 6 characters ka ho."
-                        } else if (!authLoading) {
-                            authLoading = true; authError = null
-                            scope.launch {
-                                try {
-                                    val signedIn = withContext(Dispatchers.IO) { KingAiApi.authenticate(email.trim(), password, false) }
-                                    session = signedIn
-                                    val saved = withContext(Dispatchers.IO) { KingAiApi.resume(signedIn.accessToken) }
-                                    chatId = saved.chatId
-                                    messages.clear()
-                                    messages.addAll(saved.messages)
-                                    if (messages.isEmpty()) messages.add(ChatMessage("Assalam-o-alaikum! Main King AI hoon. Aap kis cheez mein madad chahte hain?", false))
-                                } catch (e: Exception) {
-                                    authError = e.message ?: "Sign in nahi ho saka."
-                                } finally { authLoading = false }
-                            }
-                        }
-                    },
-                    enabled = !authLoading, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
-                ) {
-                    if (authLoading) CircularProgressIndicator(Modifier.size(18.dp), color = Ink, strokeWidth = 2.dp)
-                    else Text("Sign in")
+                Text("KING AI", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold, color = TextMain, letterSpacing = 2.sp, modifier = Modifier.padding(top = 16.dp))
+                if (startupError == null) {
+                    CircularProgressIndicator(color = Gold, modifier = Modifier.padding(top = 24.dp))
+                    Text("King AI tayyar ho raha hai…", color = TextMuted, modifier = Modifier.padding(top = 12.dp))
+                } else {
+                    Text(startupError!!, color = Color(0xFFFF8A80), fontSize = 13.sp, modifier = Modifier.padding(top = 18.dp))
+                    Button(onClick = { startupAttempt++ }, modifier = Modifier.padding(top = 12.dp)) { Text("Dobara koshish karein") }
                 }
-                TextButton(
-                    onClick = {
-                        if (email.isBlank() || password.length < 6) {
-                            authError = "Email enter karein aur password kam az kam 6 characters ka ho."
-                        } else if (!authLoading) {
-                            authLoading = true; authError = null
-                            scope.launch {
-                                try {
-                                    val signedUp = withContext(Dispatchers.IO) { KingAiApi.authenticate(email.trim(), password, true) }
-                                    session = signedUp
-                                    val saved = withContext(Dispatchers.IO) { KingAiApi.resume(signedUp.accessToken) }
-                                    chatId = saved.chatId
-                                    messages.clear()
-                                    messages.addAll(saved.messages)
-                                    if (messages.isEmpty()) messages.add(ChatMessage("Assalam-o-alaikum! Main King AI hoon. Aap kis cheez mein madad chahte hain?", false))
-                                } catch (e: Exception) {
-                                    authError = e.message ?: "Account create nahi ho saka."
-                                } finally { authLoading = false }
-                            }
-                        }
-                    },
-                    enabled = !authLoading
-                ) { Text("Create account", color = Gold) }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -157,11 +107,8 @@ private fun KingAiScreen() {
                     }
                     Column(Modifier.padding(start = 12.dp).weight(1f)) {
                         Text("KING AI", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = TextMain, letterSpacing = 2.sp)
-                        Text(session!!.email, color = TextMuted, fontSize = 11.sp, maxLines = 1)
+                        Text("Guest mode · bina login", color = TextMuted, fontSize = 11.sp, maxLines = 1)
                     }
-                    TextButton(onClick = {
-                        session = null; chatId = null; messages.clear(); input = ""; error = null; password = ""
-                    }) { Text("Sign out", color = Gold) }
                 }
                 Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp),
                     modifier = Modifier.fillMaxWidth().weight(1f)) {
@@ -245,15 +192,14 @@ private object KingAiApi {
         }
     }
 
-    fun authenticate(email: String, password: String, signUp: Boolean): AuthSession {
-        val url = if (signUp) "$baseUrl/auth/v1/signup" else "$baseUrl/auth/v1/token?grant_type=password"
-        val json = execute(url, JSONObject().put("email", email).put("password", password))
+    fun authenticateAnonymously(): AuthSession {
+        // Supabase creates a private guest identity without showing a login screen.
+        val json = execute("$baseUrl/auth/v1/signup", JSONObject())
         val token = json.optString("access_token")
         if (token.isBlank()) {
-            throw IOException("Email verification required ho sakti hai. Email verify karein, phir sign in karein.")
+            throw IOException("Guest mode enable nahi hai. Supabase Auth settings mein Anonymous Sign-Ins enable karein.")
         }
-        val userEmail = json.optJSONObject("user")?.optString("email").orEmpty().ifBlank { email }
-        return AuthSession(token, userEmail)
+        return AuthSession(token, "Guest mode")
     }
 
     fun resume(token: String): SavedChat {
