@@ -5,7 +5,10 @@ on:
   push:
     paths:
       - '.github/workflows/android-build.yml'
-      - 'KingAI-King-Source-1.zip'
+      - 'settings.gradle.kts'
+      - 'build.gradle.kts'
+      - 'gradle.properties'
+      - 'app/**'
 
 permissions:
   contents: read
@@ -16,36 +19,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Extract Android source ZIP
-        run: |
-          mkdir -p buildsrc
-          unzip -o KingAI-King-Source-1.zip -d buildsrc
-          PROJECT_DIR="$(find buildsrc -name settings.gradle.kts -printf '%h\n' | head -n 1)"
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "settings.gradle.kts was not found in the source ZIP"
-            find buildsrc -maxdepth 3 -type f
-            exit 1
-          fi
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project found at: $PROJECT_DIR"
-
       - name: Build debug APK
-        run: gradle -p "$PROJECT_DIR" assembleDebug --stacktrace
-
+        run: gradle assembleDebug --stacktrace
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: KingAI-debug-APK
-          path: buildsrc/**/app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
