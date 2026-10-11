@@ -225,7 +225,25 @@ private fun KingAiScreen() {
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                    ProfileAvatar(profilePhotoUri, appContext, 36)
+                    Box(Modifier.size(40.dp).clickable {
+                        showLiveNews = false
+                        if (!showHistory) {
+                            val activeSession = session
+                            if (activeSession != null) {
+                                historyBusy = true
+                                scope.launch {
+                                    try {
+                                        remoteHistory = withContext(Dispatchers.IO) { KingAiApi.listChats(activeSession.accessToken) }
+                                        showHistory = true
+                                    } catch (e: Exception) {
+                                        error = e.message ?: "Couldn't load chat history."
+                                    } finally { historyBusy = false }
+                                }
+                            }
+                        } else showHistory = false
+                    }, contentAlignment = Alignment.Center) {
+                        ProfileAvatar(profilePhotoUri, appContext, 36)
+                    }
                     Column(Modifier.padding(start = 10.dp).weight(1f)) {
                         Text("King AI", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = TextMain)
                         Text(if (storyMode) "Story mode" else liveDateTime, color = TextMuted, fontSize = 10.sp, maxLines = 1)
