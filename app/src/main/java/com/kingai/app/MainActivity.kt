@@ -42,11 +42,11 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-private val Ink = Color(0xFF0B1020)
-private val Panel = Color(0xFF151D31)
-private val Gold = Color(0xFFFFC857)
-private val TextMain = Color(0xFFF4F6FC)
-private val TextMuted = Color(0xFF9CA8C2)
+private val Ink = Color(0xFF212121)
+private val Panel = Color(0xFF2F2F2F)
+private val Gold = Color(0xFFB7C8B5)
+private val TextMain = Color(0xFFF7F7F8)
+private val TextMuted = Color(0xFFB4B4B4)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -197,11 +197,11 @@ private fun KingAiScreen() {
             }
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 12.dp)) {
-                    ProfileAvatar(profilePhotoUri, appContext, 46)
-                    Column(Modifier.padding(start = 12.dp).weight(1f)) {
-                        Text("KING AI", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = TextMain, letterSpacing = 2.sp)
-                        Text("Your personal AI assistant", color = TextMuted, fontSize = 11.sp)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    ProfileAvatar(profilePhotoUri, appContext, 36)
+                    Column(Modifier.padding(start = 10.dp).weight(1f)) {
+                        Text("King AI", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = TextMain)
+                        Text(if (storyMode) "Story mode" else "AI assistant", color = TextMuted, fontSize = 11.sp)
                     }
                     IconButton(onClick = {
                         if (messages.isNotEmpty() && chatId != null) {
@@ -265,9 +265,17 @@ private fun KingAiScreen() {
                     LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(messages) { message ->
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start) {
-                                Card(colors = CardDefaults.cardColors(containerColor = if (message.fromUser) Color(0xFF34415D) else Color(0xFF202B42)),
-                                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(0.88f)) {
-                                    Text(message.text, Modifier.padding(14.dp), color = TextMain, fontSize = 15.sp, lineHeight = 22.sp)
+                                if (message.fromUser) {
+                                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF3A3A3A)),
+                                        shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth(0.88f)) {
+                                        Text(message.text, Modifier.padding(horizontal = 16.dp, vertical = 12.dp), color = TextMain, fontSize = 15.sp, lineHeight = 22.sp)
+                                    }
+                                } else {
+                                    Column(Modifier.fillMaxWidth(0.96f).padding(vertical = 4.dp)) {
+                                        Text("King AI", color = Gold, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(bottom = 4.dp))
+                                        Text(message.text, color = TextMain, fontSize = 15.sp, lineHeight = 23.sp)
+                                    }
                                 }
                             }
                         }
@@ -281,10 +289,15 @@ private fun KingAiScreen() {
                 }
                 error?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp)) }
                 Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().background(Color(0xFF303030), RoundedCornerShape(26.dp)).padding(horizontal = 8.dp, vertical = 5.dp)) {
                     OutlinedTextField(value = input, onValueChange = { input = it; error = null },
-                        modifier = Modifier.weight(1f), placeholder = { Text(if (storyMode) "Enter a story idea..." else "Message King AI...", color = TextMuted) },
-                        shape = RoundedCornerShape(16.dp), maxLines = 4)
+                        modifier = Modifier.weight(1f), placeholder = { Text(if (storyMode) "Describe your story..." else "Message King AI", color = TextMuted) },
+                        shape = RoundedCornerShape(22.dp), maxLines = 5,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent,
+                            focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                            cursorColor = Gold))
                     Button(onClick = {
                         val prompt = input.trim()
                         val activeSession = session
@@ -302,8 +315,8 @@ private fun KingAiScreen() {
                                 } finally { loading = false }
                             }
                         }
-                    }, enabled = input.isNotBlank() && !loading, modifier = Modifier.size(54.dp),
-                        shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Send, contentDescription = "Send") }
+                    }, enabled = input.isNotBlank() && !loading, modifier = Modifier.size(46.dp),
+                        shape = CircleShape, contentPadding = PaddingValues(0.dp)) { Icon(Icons.Default.Send, contentDescription = "Send") }
                 }
                 Text(if (storyMode) "Story Maker is on — enter a topic and tap Send." else "Your chat history is saved to your account. Avoid sharing sensitive information.",
                     color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
