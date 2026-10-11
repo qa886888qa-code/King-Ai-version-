@@ -64,6 +64,7 @@ private data class ChatMessage(val text: String, val fromUser: Boolean)
 private data class LocalConversation(val id: String, val title: String, val messages: List<ChatMessage>)
 private data class AuthSession(val accessToken: String, val email: String, val refreshToken: String)
 private data class SavedChat(val chatId: String?, val messages: List<ChatMessage>)
+private data class RemoteConversation(val id: String, val title: String, val messageCount: Int)
 private data class ChatReply(val text: String, val chatId: String)
 
 @Composable
@@ -87,6 +88,9 @@ private fun KingAiScreen() {
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var chatId by remember { mutableStateOf<String?>(null) }
     var showHistory by remember { mutableStateOf(false) }
+    var remoteHistory by remember { mutableStateOf<List<RemoteConversation>>(emptyList()) }
+    var historyBusy by remember { mutableStateOf(false) }
+    var showClearHistoryConfirm by remember { mutableStateOf(false) }
     var localHistory by remember { mutableStateOf(loadLocalHistory(appContext)) }
     var input by remember { mutableStateOf("") }
     var storyMode by remember { mutableStateOf(false) }
@@ -213,7 +217,24 @@ private fun KingAiScreen() {
                         input = ""
                         showHistory = false
                     }) { Icon(Icons.Default.Add, contentDescription = "New chat", tint = Gold) }
-                    TextButton(onClick = { showHistory = !showHistory }) { Text(if (showHistory) "Close" else "History", color = Gold, fontWeight = FontWeight.Bold) }
+                    TextButton(onClick = {
+                        if (!showHistory) {
+                            val activeSession = session
+                            if (activeSession != null) {
+                                historyBusy = true
+                                scope.launch {
+                                    try {
+                                        remoteHistory = withContext(Dispatchers.IO) { KingAiApi.listChats(activeSession.accessToken) }
+                                        showHistory = true
+                                    } catch (e: Exception) {
+                                        error = e.message ?: "Couldn't load chat history."
+                                    } finally { historyBusy = false }
+                                }
+                            }
+                        } else showHistory = false
+                    }, enabled = !historyBusy) {
+                        Text(if (historyBusy) "Loading…" else if (showHistory) "Close" else "History", color = Gold, fontWeight = FontWeight.Bold)
+                    }
                     TextButton(onClick = {
                         val activeSession = session
                         if (!loading && activeSession != null) {
@@ -243,21 +264,41 @@ private fun KingAiScreen() {
                     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp),
                         modifier = Modifier.fillMaxWidth().weight(1f)) {
                         LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            item { Text("Recent chats", color = TextMain, fontWeight = FontWeight.Bold, fontSize = 18.sp) }
-                            items(localHistory.reversed(), key = { it.id }) { chat ->
-                                OutlinedButton(onClick = {
-                                    chatId = chat.id
-                                    messages.clear()
-                                    messages.addAll(chat.messages)
-                                    showHistory = false
-                                }, modifier = Modifier.fillMaxWidth()) {
-                                    Column(Modifier.fillMaxWidth()) {
-                                        Text(chat.title, color = TextMain, maxLines = 1)
-                                        Text(chat.messages.size.toString() + " messages", color = TextMuted, fontSize = 11.sp)
+                            item {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Chat history", color = TextMain, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                                    TextButton(onClick = { showClearHistoryConfirm = true }, enabled = remoteHistory.isNotEmpty()) {
+                                        Text("Clear all", color = Color(0xFFFF8A80))
                                     }
                                 }
                             }
-                            if (localHistory.isEmpty()) item { Text("Your chats will appear here after you start a conversation.", color = TextMuted) }
+                            items(remoteHistory, key = { it.id }) { chat ->
+                                OutlinedButton(onClick = {
+                                    val activeSession = session
+                                    if (activeSession != null) {
+                                        historyBusy = true
+                                        scope.launch {
+                                            try {
+                                                val saved = withContext(Dispatchers.IO) { KingAiApi.loadChat(activeSession.accessToken, chat.id) }
+                                                chatId = saved.chatId
+                                                messages.clear()
+                                                messages.addAll(saved.messages)
+                                                if (messages.isEmpty()) messages.add(ChatMessage("This chat has no messages yet.", false))
+                                                showHistory = false
+                                                error = null
+                                            } catch (e: Exception) {
+                                                error = e.message ?: "Couldn't open this chat."
+                                            } finally { historyBusy = false }
+                                        }
+                                    }
+                                }, modifier = Modifier.fillMaxWidth(), enabled = !historyBusy) {
+                                    Column(Modifier.fillMaxWidth()) {
+                                        Text(chat.title, color = TextMain, maxLines = 1)
+                                        Text("${chat.messageCount} messages", color = TextMuted, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                            if (remoteHistory.isEmpty()) item { Text("No saved chats yet. Start a new conversation.", color = TextMuted) }
                         }
                     }
                 } else Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp),
@@ -321,6 +362,38 @@ private fun KingAiScreen() {
                 Text(if (storyMode) "Story Maker is on — enter a topic and tap Send." else "Your chat history is saved to your account. Avoid sharing sensitive information.",
                     color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
             }
+        }
+        if (showClearHistoryConfirm) {
+            AlertDialog(
+                onDismissRequest = { showClearHistoryConfirm = false },
+                title = { Text("Clear chat history?") },
+                text = { Text("This permanently deletes all chats saved to your account. This action cannot be undone.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val activeSession = session
+                        showClearHistoryConfirm = false
+                        if (activeSession != null && !historyBusy) {
+                            historyBusy = true
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) { KingAiApi.clearHistory(activeSession.accessToken) }
+                                    remoteHistory = emptyList()
+                                    localHistory = emptyList()
+                                    appContext.getSharedPreferences("king_ai_history", Context.MODE_PRIVATE).edit().remove("chats").apply()
+                                    chatId = null
+                                    messages.clear()
+                                    messages.add(ChatMessage("Chat history cleared. Start a new conversation whenever you're ready.", false))
+                                    showHistory = false
+                                    error = null
+                                } catch (e: Exception) {
+                                    error = e.message ?: "Couldn't clear chat history."
+                                } finally { historyBusy = false }
+                            }
+                        }
+                    }) { Text("Delete all", color = Color(0xFFFF8A80)) }
+                },
+                dismissButton = { TextButton(onClick = { showClearHistoryConfirm = false }) { Text("Cancel") } }
+            )
         }
     }
 }
@@ -479,6 +552,38 @@ private object KingAiApi {
             }
         }
         return SavedChat(id, saved)
+    }
+
+    fun listChats(token: String): List<RemoteConversation> {
+        val json = execute(BuildConfig.KING_AI_CHAT_FUNCTION_URL, JSONObject().put("action", "list_chats"), token)
+        val array = json.optJSONArray("chats") ?: org.json.JSONArray()
+        return (0 until array.length()).mapNotNull { i ->
+            val item = array.optJSONObject(i) ?: return@mapNotNull null
+            val id = item.optString("id")
+            if (id.isBlank()) null else RemoteConversation(
+                id = id,
+                title = item.optString("title").ifBlank { "New chat" },
+                messageCount = item.optInt("message_count", 0)
+            )
+        }
+    }
+
+    fun loadChat(token: String, id: String): SavedChat {
+        val json = execute(BuildConfig.KING_AI_CHAT_FUNCTION_URL,
+            JSONObject().put("action", "load_chat").put("chatId", id), token)
+        val saved = mutableListOf<ChatMessage>()
+        val array = json.optJSONArray("messages")
+        if (array != null) {
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                saved.add(ChatMessage(item.optString("content"), item.optString("role") == "user"))
+            }
+        }
+        return SavedChat(json.optString("chatId").takeIf { it.isNotBlank() && it != "null" }, saved)
+    }
+
+    fun clearHistory(token: String) {
+        execute(BuildConfig.KING_AI_CHAT_FUNCTION_URL, JSONObject().put("action", "delete_all_chats"), token)
     }
 
     fun send(prompt: String, token: String, chatId: String?): ChatReply {
