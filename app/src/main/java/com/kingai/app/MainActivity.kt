@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
@@ -91,6 +92,7 @@ private fun KingAiScreen() {
     var remoteHistory by remember { mutableStateOf<List<RemoteConversation>>(emptyList()) }
     var historyBusy by remember { mutableStateOf(false) }
     var showClearHistoryConfirm by remember { mutableStateOf(false) }
+    var chatToDelete by remember { mutableStateOf<RemoteConversation?>(null) }
     var localHistory by remember { mutableStateOf(loadLocalHistory(appContext)) }
     var input by remember { mutableStateOf("") }
     var storyMode by remember { mutableStateOf(false) }
@@ -273,28 +275,33 @@ private fun KingAiScreen() {
                                 }
                             }
                             items(remoteHistory, key = { it.id }) { chat ->
-                                OutlinedButton(onClick = {
-                                    val activeSession = session
-                                    if (activeSession != null) {
-                                        historyBusy = true
-                                        scope.launch {
-                                            try {
-                                                val saved = withContext(Dispatchers.IO) { KingAiApi.loadChat(activeSession.accessToken, chat.id) }
-                                                chatId = saved.chatId
-                                                messages.clear()
-                                                messages.addAll(saved.messages)
-                                                if (messages.isEmpty()) messages.add(ChatMessage("This chat has no messages yet.", false))
-                                                showHistory = false
-                                                error = null
-                                            } catch (e: Exception) {
-                                                error = e.message ?: "Couldn't open this chat."
-                                            } finally { historyBusy = false }
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedButton(onClick = {
+                                        val activeSession = session
+                                        if (activeSession != null) {
+                                            historyBusy = true
+                                            scope.launch {
+                                                try {
+                                                    val saved = withContext(Dispatchers.IO) { KingAiApi.loadChat(activeSession.accessToken, chat.id) }
+                                                    chatId = saved.chatId
+                                                    messages.clear()
+                                                    messages.addAll(saved.messages)
+                                                    if (messages.isEmpty()) messages.add(ChatMessage("This chat has no messages yet.", false))
+                                                    showHistory = false
+                                                    error = null
+                                                } catch (e: Exception) {
+                                                    error = e.message ?: "Couldn't open this chat."
+                                                } finally { historyBusy = false }
+                                            }
+                                        }
+                                    }, modifier = Modifier.weight(1f), enabled = !historyBusy) {
+                                        Column(Modifier.fillMaxWidth()) {
+                                            Text(chat.title, color = TextMain, maxLines = 1)
+                                            Text("${chat.messageCount} messages", color = TextMuted, fontSize = 11.sp)
                                         }
                                     }
-                                }, modifier = Modifier.fillMaxWidth(), enabled = !historyBusy) {
-                                    Column(Modifier.fillMaxWidth()) {
-                                        Text(chat.title, color = TextMain, maxLines = 1)
-                                        Text("${chat.messageCount} messages", color = TextMuted, fontSize = 11.sp)
+                                    IconButton(onClick = { chatToDelete = chat }, enabled = !historyBusy) {
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = "Delete chat", tint = Color(0xFFFF8A80))
                                     }
                                 }
                             }
@@ -363,6 +370,39 @@ private fun KingAiScreen() {
                     color = TextMuted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp))
             }
         }
+        if (chatToDelete != null) {
+            val targetChat = chatToDelete!!
+            AlertDialog(
+                onDismissRequest = { chatToDelete = null },
+                title = { Text("Delete this chat?") },
+                text = { Text("${targetChat.title} and all its messages will be permanently deleted. This cannot be undone.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val activeSession = session
+                        chatToDelete = null
+                        if (activeSession != null && !historyBusy) {
+                            historyBusy = true
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) { KingAiApi.deleteChat(activeSession.accessToken, targetChat.id) }
+                                    remoteHistory = remoteHistory.filterNot { it.id == targetChat.id }
+                                    localHistory = removeLocalConversation(appContext, localHistory, targetChat.id)
+                                    if (chatId == targetChat.id) {
+                                        chatId = null
+                                        messages.clear()
+                                        messages.add(ChatMessage("This chat was deleted. Start a new conversation whenever you're ready.", false))
+                                    }
+                                    error = null
+                                } catch (e: Exception) {
+                                    error = e.message ?: "Couldn't delete this chat."
+                                } finally { historyBusy = false }
+                            }
+                        }
+                    }) { Text("Delete chat", color = Color(0xFFFF8A80)) }
+                },
+                dismissButton = { TextButton(onClick = { chatToDelete = null }) { Text("Cancel") } }
+            )
+        }
         if (showClearHistoryConfirm) {
             AlertDialog(
                 onDismissRequest = { showClearHistoryConfirm = false },
@@ -417,6 +457,20 @@ private fun loadLocalHistory(context: Context): List<LocalConversation> {
 private fun saveLocalConversation(context: Context, old: List<LocalConversation>, id: String, messages: List<ChatMessage>): List<LocalConversation> {
     val title = messages.firstOrNull { it.fromUser }?.text?.take(48) ?: "Chat"
     val next = (old.filterNot { it.id == id } + LocalConversation(id, title, messages)).takeLast(40)
+    val array = org.json.JSONArray()
+    next.forEach { chat ->
+        val obj = JSONObject().put("id", chat.id).put("title", chat.title)
+        val msgs = org.json.JSONArray()
+        chat.messages.forEach { msgs.put(JSONObject().put("text", it.text).put("user", it.fromUser)) }
+        obj.put("messages", msgs)
+        array.put(obj)
+    }
+    context.getSharedPreferences("king_ai_history", Context.MODE_PRIVATE).edit().putString("chats", array.toString()).apply()
+    return next
+}
+
+private fun removeLocalConversation(context: Context, old: List<LocalConversation>, id: String): List<LocalConversation> {
+    val next = old.filterNot { it.id == id }
     val array = org.json.JSONArray()
     next.forEach { chat ->
         val obj = JSONObject().put("id", chat.id).put("title", chat.title)
@@ -580,6 +634,11 @@ private object KingAiApi {
             }
         }
         return SavedChat(json.optString("chatId").takeIf { it.isNotBlank() && it != "null" }, saved)
+    }
+
+    fun deleteChat(token: String, chatId: String) {
+        execute(BuildConfig.KING_AI_CHAT_FUNCTION_URL,
+            JSONObject().put("action", "delete_chat").put("chatId", chatId), token)
     }
 
     fun clearHistory(token: String) {
