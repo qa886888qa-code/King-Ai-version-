@@ -73,9 +73,9 @@ class MainActivity : ComponentActivity() {
         val uri = intent?.data ?: return
         if (uri.scheme != "com.hisabpro.app" || uri.host != "login-callback") return
         val fragment = uri.fragment ?: return
-        val values = fragment.split("&").mapNotNull {
-            val bits = it.split("=", limit = 2)
-            if (bits.size == 2) bits[bits[0]] = bits[1] else null
+        val values = fragment.split("&").mapNotNull { part ->
+            val bits = part.split("=", limit = 2)
+            if (bits.size == 2) bits[0] to Uri.decode(bits[1]) else null
         }.toMap()
         val access = values["access_token"] ?: return
         val refresh = values["refresh_token"] ?: ""
@@ -88,6 +88,16 @@ private data class Tx(val id: String, val type: String, val amount: Double, val 
 
 private class HisabApi(private val access: String) {
     private val base = BuildConfig.SUPABASE_URL
+    private fun currentUserId(): String {
+        val req = Request.Builder().url("$base/auth/v1/user")
+            .header("apikey", BuildConfig.SUPABASE_PUBLISHABLE_KEY)
+            .header("Authorization", "Bearer $access").get().build()
+        http.newCall(req).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IllegalStateException("Session invalid (${response.code}). Please sign in again.")
+            return JSONObject(text).getString("id")
+        }
+    }
     private fun request(path: String, method: String = "GET", body: String? = null, prefer: String? = null): String {
         val builder = Request.Builder().url("$base/rest/v1/$path")
             .header("apikey", BuildConfig.SUPABASE_PUBLISHABLE_KEY)
@@ -114,11 +124,11 @@ private class HisabApi(private val access: String) {
         return (0 until arr.length()).map { val o = arr.getJSONObject(it); Tx(o.getString("id"), o.getString("type"), o.getDouble("amount"), o.optString("note"), o.optString("date"), o.optString("category","Other")) }
     }
     fun addCustomer(name: String, phone: String) {
-        val obj = JSONObject().put("name", name.trim()).put("phone", phone.trim().ifBlank { JSONObject.NULL })
+        val obj = JSONObject().put("user_id", currentUserId()).put("name", name.trim()).put("phone", phone.trim().ifBlank { JSONObject.NULL })
         request("customers", "POST", obj.toString(), "return=minimal")
     }
     fun addTransaction(type: String, amount: Double, note: String, category: String) {
-        val obj = JSONObject().put("type", type).put("amount", amount)
+        val obj = JSONObject().put("user_id", currentUserId()).put("type", type).put("amount", amount)
             .put("note", note.trim().ifBlank { JSONObject.NULL }).put("category", category.ifBlank { "Other" })
             .put("method", "Cash")
         request("transactions", "POST", obj.toString(), "return=minimal")
