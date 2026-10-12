@@ -13,7 +13,7 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         buildConfigField("String", "SUPABASE_URL", "\"https://zmtaszydqeagtnslcrgv.supabase.co\"")
-        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_cJwVyQs551sviwX7hPzDHQ_mhla0wDr\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_LaOBRRqNbYu8RgSCLiIRKg_YIK9RNG0\"")
     }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions {
