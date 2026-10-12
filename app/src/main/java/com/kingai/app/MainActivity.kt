@@ -809,7 +809,7 @@ private fun KingAiBannerAd() {
         factory = { context ->
             AdView(context).apply {
                 setAdSize(AdSize.BANNER)
-                adUnitId = "ca-app-pub-2948286302486591/4440221651"
+                adUnitId = "ca-app-pub-3940256099942544/6300978111"
                 layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 loadAd(AdRequest.Builder().build())
             }
