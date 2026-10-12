@@ -3,6 +3,7 @@
     <application
         android:allowBackup="false"
         android:label="Hisab Pro"
+        android:icon="@drawable/ic_hisab_pro"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
         <activity
