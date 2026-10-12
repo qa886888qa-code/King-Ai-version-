@@ -1,0 +1,37 @@
+name: Build Hisab Pro APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'hisab-pro/**'
+      - '.github/workflows/hisab-pro-android.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build Hisab Pro APK
+        working-directory: hisab-pro
+        run: gradle assembleDebug --stacktrace
+      - name: Upload Hisab Pro APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hisab-Pro-Android-APK
+          path: hisab-pro/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
