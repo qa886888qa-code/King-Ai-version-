@@ -4,6 +4,12 @@ import android.os.Bundle
 import android.content.Context
 import android.content.Intent
 import android.util.Xml
+import android.view.ViewGroup
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.MobileAds
+import androidx.compose.ui.viewinterop.AndroidView
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.ComponentActivity
@@ -61,6 +67,7 @@ private val TextMuted = Color(0xFFB4B4B4)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MobileAds.initialize(this) {}
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = Gold, onPrimary = Ink, background = Ink,
@@ -425,6 +432,7 @@ private fun KingAiScreen() {
                         }
                     }
                 }
+                KingAiBannerAd()
                 error?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp)) }
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -791,4 +799,20 @@ private object KingAiApi {
         if (id.isBlank()) throw IOException("The server did not return a chat ID.")
         return ChatReply(answer, id)
     }
+}
+
+
+@Composable
+private fun KingAiBannerAd() {
+    AndroidView(
+        modifier = Modifier.fillMaxWidth().wrapContentHeight(),
+        factory = { context ->
+            AdView(context).apply {
+                setAdSize(AdSize.BANNER)
+                adUnitId = "ca-app-pub-2948286302486591/4440221651"
+                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                loadAd(AdRequest.Builder().build())
+            }
+        }
+    )
 }
